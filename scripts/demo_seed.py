@@ -79,13 +79,9 @@ PROFILES = [
 ]
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--shift-deadlines", action="store_true")
-    parser.add_argument("--db", type=Path, default=Path("data/demo.db"))
-    args = parser.parse_args()
-
-    settings = Settings(db_path=args.db, ai_provider="demo")
+def build(db: Path, shift_deadlines: bool = False) -> Path:
+    """Собирает демо-базу; при shift_deadlines сроки сдвигаются до пересчёта рейтинга."""
+    settings = Settings(db_path=db, ai_provider="demo")
     db_file = settings.resolved_db_path()
     if db_file.exists():
         db_file.unlink()  # только демо-база внутри проекта
@@ -127,8 +123,13 @@ def main() -> None:
         ).all()
         for i, (tender, _) in enumerate(top[:3]):
             tender.status = "interesting"
-            if args.shift_deadlines:
+            if shift_deadlines:
                 tender.deadline_at = today + timedelta(days=1 + i % 2)
+                # рейтинг и отсев считаются по сроку, поэтому пересчитываем после сдвига
+                for sc in session.scalars(select(Score).where(Score.tender_id == tender.id)).all():
+                    owner = session.get(Profile, sc.profile_id)
+                    if owner is not None:
+                        evaluate(session, tender, owner, today, ai)
         for tender, _ in top[-2:]:
             tender.status = "rejected"
         session.commit()
@@ -137,6 +138,15 @@ def main() -> None:
         profiles = len(session.scalars(select(Profile)).all())
         print(f"{db_file}: профилей {profiles}, закупок {total}, в рейтинге {shown}")
     engine.dispose()
+    return db_file
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--shift-deadlines", action="store_true")
+    parser.add_argument("--db", type=Path, default=Path("data/demo.db"))
+    args = parser.parse_args()
+    build(args.db, args.shift_deadlines)
 
 
 if __name__ == "__main__":

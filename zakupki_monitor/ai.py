@@ -247,7 +247,7 @@ class DemoProvider:
         hits = [ln for ln in lines if any(w in ln.lower() for w in words)]
         seed = int(hashlib.sha256(text.encode()).hexdigest()[:6], 16)
         if hits:
-            quote = hits[0][:200].strip()
+            quote = hits[0][:200].rsplit(" ", 1)[0].strip() if len(hits[0]) > 200 else hits[0]
             score = 62 + seed % 35
             verdict = "[демо] В тексте закупки есть совпадения с критерием, предмет подходит."
             reasons = ["[демо] Предмет закупки пересекается с критерием по ключевым словам"]
