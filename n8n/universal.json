@@ -1,0 +1,185 @@
+{
+  "name": "Монитор госзакупок: универсальный (Google Sheets и Telegram)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zakupki-universal",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n-webhook",
+      "name": "Вебхук от монитора",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "zakupki-universal",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Zakupki webhook secret"
+        }
+      },
+      "notes": "Authentication: Header Auth. Секрет не нужен: выберите None и очистите поле в настройках монитора."
+    },
+    {
+      "parameters": {
+        "jsCode": "const SHEET_URL = 'https://docs.google.com/spreadsheets/d/ВАШ-ID-ТАБЛИЦЫ';\n// Разбор тендера схемы tender.v1, присланного монитором госзакупок.\nconst b = $input.first().json.body ?? $input.first().json;\nconst money = (n) => (n == null ? 'не указана' : Number(n).toLocaleString('ru-RU') + ' ' + (b.currency === 'RUB' || !b.currency ? '₽' : b.currency));\nconst dl = b.deadline_at || null;\nlet deadlineTs = Math.floor(Date.now() / 1000) + 3 * 86400;\nif (dl) {\n  const iso = dl.length > 10 ? dl + ':00+03:00' : dl + 'T23:59:00+03:00';\n  const t = Date.parse(iso);\n  if (!isNaN(t)) deadlineTs = Math.floor(t / 1000);\n}\nconst ai = b.ai || {};\nconst lines = [\n  `Закупка ${b.reg_number} (${b.law}-ФЗ), профиль «${b.profile}»`,\n  `Объект: ${b.object}`,\n  `Заказчик: ${(b.customer && b.customer.name) || '—'}${b.customer && b.customer.inn ? ', ИНН ' + b.customer.inn : ''}`,\n  `Начальная цена: ${money(b.price)}`,\n  `Окончание подачи заявок: ${dl || '—'}`,\n  `Рейтинг: ${b.rating ?? '—'}`,\n];\nif (ai.verdict) lines.push(`ИИ (${ai.score ?? '—'}): ${ai.verdict}`);\nif (b.user_note) lines.push(`Заметка: ${b.user_note}`);\nif (b.url) lines.push(`ЕИС: ${b.url}`);\nreturn [{ json: {\n  sheet_url: SHEET_URL,\n  row: { 'Дата': new Date().toISOString().slice(0, 10), 'Номер': b.reg_number, 'Закон': b.law, 'Объект': b.object, 'Заказчик': (b.customer && b.customer.name) || '', 'ИНН': (b.customer && b.customer.inn) || '', 'Цена': b.price, 'Подача до': dl, 'Рейтинг': b.rating, 'Профиль': b.profile, 'Ссылка ЕИС': b.url || '', 'Заметка': b.user_note || '' },\n  reg_number: b.reg_number,\n  title: `Тендер ${b.reg_number}: ${b.object}`.slice(0, 250),\n  object: b.object,\n  customer_name: (b.customer && b.customer.name) || '',\n  customer_inn: (b.customer && b.customer.inn) || '',\n  price: b.price,\n  deadline_at: dl,\n  deadline_ts: deadlineTs,\n  eis_url: b.url || '',\n  rating: b.rating,\n  note: lines.join('\\n'),\n  raw: b,\n} }];"
+      },
+      "id": "n-map",
+      "name": "Маппинг",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "Впишите ссылку на свою таблицу в первой строке."
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "mode": "url",
+          "value": "={{ $json.sheet_url }}"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "Закупки"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Дата": "={{ $json.row['Дата'] }}",
+            "Номер": "={{ $json.row['Номер'] }}",
+            "Закон": "={{ $json.row['Закон'] }}",
+            "Объект": "={{ $json.row['Объект'] }}",
+            "Заказчик": "={{ $json.row['Заказчик'] }}",
+            "ИНН": "={{ $json.row['ИНН'] }}",
+            "Цена": "={{ $json.row['Цена'] }}",
+            "Подача до": "={{ $json.row['Подача до'] }}",
+            "Рейтинг": "={{ $json.row['Рейтинг'] }}",
+            "Профиль": "={{ $json.row['Профиль'] }}",
+            "Ссылка ЕИС": "={{ $json.row['Ссылка ЕИС'] }}",
+            "Заметка": "={{ $json.row['Заметка'] }}"
+          },
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "n-sheets",
+      "name": "Добавить строку в Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        480,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "",
+          "name": "Google Sheets account"
+        }
+      },
+      "notes": "Создайте лист «Закупки» с заголовками колонок, как в маппинге."
+    },
+    {
+      "parameters": {
+        "chatId": "ВАШ_CHAT_ID",
+        "text": "={{ 'Новая закупка в работе\\n' + $('Маппинг').item.json.note }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "id": "n-tg",
+      "name": "Сообщение в Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        720,
+        300
+      ],
+      "credentials": {
+        "telegramApi": {
+          "id": "",
+          "name": "Telegram Bot"
+        }
+      },
+      "notes": "Замените ВАШ_CHAT_ID на идентификатор чата."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ crm: 'google-sheets', external_id: $('Маппинг').item.json.reg_number, url: $('Маппинг').item.json.sheet_url }) }}",
+        "options": {}
+      },
+      "id": "n-respond",
+      "name": "Ответ монитору",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Вебхук от монитора": {
+      "main": [
+        [
+          {
+            "node": "Маппинг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Маппинг": {
+      "main": [
+        [
+          {
+            "node": "Добавить строку в Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Добавить строку в Google Sheets": {
+      "main": [
+        [
+          {
+            "node": "Сообщение в Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Сообщение в Telegram": {
+      "main": [
+        [
+          {
+            "node": "Ответ монитору",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

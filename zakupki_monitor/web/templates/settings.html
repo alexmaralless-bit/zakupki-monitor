@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block content %}
+<h1>Настройки</h1>
+{% if msg %}<p class="notice">{{ msg }}</p>{% endif %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="/settings" class="stack">
+<div class="grid">
+  <section class="panel">
+    <h2>ИИ-оценка</h2>
+    <label>Провайдер
+      <select name="ai_provider">
+        {% for k, v in providers.items() %}<option value="{{ k }}" {{ 'selected' if rt.ai_provider == k }}>{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    <ul class="status-list">
+      {% for k, v in providers.items() %}<li><b>{{ v }}</b>: {{ provider_status[k] }}</li>{% endfor %}
+    </ul>
+    <p class="muted">Ключи задаются в файле <code>.env</code> (см. <code>.env.example</code>) и в интерфейсе не показываются. Если провайдер не настроен, рейтинг считается только по правилам.</p>
+
+    <h2>CRM через n8n</h2>
+    <label>Адрес вебхука n8n <input name="webhook_url" value="{{ rt.webhook_url }}" placeholder="http://localhost:5678/webhook/zakupki-amocrm"></label>
+    <div class="two">
+      <label>Заголовок с секретом <input name="webhook_header" value="{{ rt.webhook_header }}"></label>
+      <label>Значение секрета <input type="password" name="webhook_secret" autocomplete="off" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if rt.webhook_secret else 'не задан (необязательно)' }}"></label>
+    </div>
+    {% if rt.webhook_secret %}<label class="check"><input type="checkbox" name="clear_webhook_secret"> убрать секрет</label>{% endif %}
+  </section>
+  <section class="panel">
+    <h2>Telegram-сводка</h2>
+    <label class="check"><input type="checkbox" name="telegram_enabled" {{ 'checked' if rt.telegram_enabled }}> присылать сводку раз в день</label>
+    <label>Токен бота <input type="password" name="telegram_token" autocomplete="off" placeholder="{{ 'задан, оставьте пустым чтобы не менять' if rt.telegram_token else '123456:ABC...' }}"></label>
+    <label>chat_id <input name="telegram_chat_id" value="{{ rt.telegram_chat_id }}"></label>
+    <div class="two">
+      <label>Порог рейтинга <input type="number" min="0" max="100" name="telegram_threshold" value="{{ '%.0f' % rt.telegram_threshold }}"></label>
+      <label>Час отправки (местное время) <input type="number" min="0" max="23" name="telegram_hour" value="{{ rt.telegram_hour }}"></label>
+    </div>
+    <p class="muted">В сводку попадают новые закупки с рейтингом не ниже порога и срочные (до окончания подачи меньше 3 дней).</p>
+  </section>
+</div>
+<div class="bar"><button class="btn primary" type="submit">Сохранить настройки</button></div>
+</form>
+<form method="post" action="/settings/telegram-test"><button class="btn ghost" type="submit">Отправить тестовую сводку сейчас</button></form>
+{% endblock %}

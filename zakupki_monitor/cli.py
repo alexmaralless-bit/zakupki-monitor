@@ -1,4 +1,4 @@
-"""Командная строка: zakupki-monitor init-db | profile ... | collect | tenders list."""
+"""Командная строка: init-db | profile ... | collect | serve | tenders list."""
 
 from __future__ import annotations
 
@@ -126,6 +126,29 @@ def collect_cmd(
             )
             for note in stats.notes:
                 typer.echo(f"  {note}")
+
+
+@app.command("serve")
+def serve(
+    port: Annotated[int | None, typer.Option("--port", min=1, max=65535)] = None,
+    no_scheduler: Annotated[
+        bool, typer.Option("--no-scheduler", help="Не запускать автосбор по расписанию")
+    ] = False,
+) -> None:
+    """Запустить веб-интерфейс (только 127.0.0.1) с планировщиком."""
+    import uvicorn
+
+    from .web.app import create_app
+
+    settings = get_settings()
+    chosen = port or settings.web_port
+    typer.echo(f"Реестр: http://127.0.0.1:{chosen}")
+    uvicorn.run(
+        create_app(settings, start_scheduler=not no_scheduler),
+        host="127.0.0.1",
+        port=chosen,
+        log_level="info",
+    )
 
 
 @tenders_app.command("list")

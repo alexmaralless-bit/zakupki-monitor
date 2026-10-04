@@ -1,0 +1,27 @@
+<tr id="row-{{ t.id }}-{{ p.id if p else 0 }}" class="st-{{ t.status }}">
+  <td class="num">
+    {% if s and s.filtered %}<span class="rating r-none" title="{{ s.filter_reasons|join('; ') }}">отсев</span>
+    {% else %}<span class="rating {{ s.rating|rclass if s else 'r-none' }}">{{ '%.0f'|format(s.rating) if s and s.rating is not none else '-' }}</span>{% endif %}
+  </td>
+  <td class="obj">
+    <a href="/tenders/{{ t.id }}{{ '?profile=%d' % p.id if p }}">{{ t.object }}</a>
+    <div class="sub">{{ t.reg_number }}{% if t.okpd2 %} · ОКПД2 {{ t.okpd2|join(', ') }}{% endif %}</div>
+  </td>
+  <td class="cust">{{ t.customer_name or '-' }}</td>
+  <td class="num nowrap">{{ t.initial_price|money }}</td>
+  <td class="nowrap {{ dl_class }}">
+    {{ t.deadline_at|d }}{% if t.deadline_time %} {{ t.deadline_time|t }}{% endif %}
+    {% if days is not none and days >= 0 %}<div class="sub">осталось {{ days }} дн.</div>
+    {% elif days is not none %}<div class="sub">срок прошёл</div>{% endif %}
+  </td>
+  <td class="nowrap">{{ t.law }}-ФЗ</td>
+  <td>{{ p.name if p else '-' }}</td>
+  <td>
+    <select class="status s-{{ t.status }}" name="status"
+            hx-post="/tenders/{{ t.id }}/status" hx-trigger="change"
+            hx-vals='{"profile_id": "{{ p.id if p else '' }}", "view": "row"}'
+            hx-target="#row-{{ t.id }}-{{ p.id if p else 0 }}" hx-swap="outerHTML">
+      {% for k, v in statuses.items() %}<option value="{{ k }}" {{ 'selected' if t.status == k }}>{{ v }}</option>{% endfor %}
+    </select>
+  </td>
+</tr>

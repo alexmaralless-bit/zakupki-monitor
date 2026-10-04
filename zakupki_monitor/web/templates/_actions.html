@@ -1,0 +1,38 @@
+<div id="actions" class="actions">
+  <div class="act-row">
+    <label>Статус
+      <select class="status s-{{ t.status }}" name="status"
+              hx-post="/tenders/{{ t.id }}/status" hx-trigger="change"
+              hx-vals='{"profile_id": "{{ profile.id if profile else '' }}", "view": "card"}'
+              hx-target="#actions" hx-swap="outerHTML">
+        {% for k, v in statuses.items() %}<option value="{{ k }}" {{ 'selected' if t.status == k }}>{{ v }}</option>{% endfor %}
+      </select>
+    </label>
+    {% if profile %}
+    <button class="btn primary" type="button"
+            hx-post="/tenders/{{ t.id }}/crm" hx-vals='{"profile_id": "{{ profile.id }}"}'
+            hx-target="#actions" hx-swap="outerHTML"
+            {{ '' if webhook_set else 'disabled title="Сначала укажите адрес вебхука в настройках"' }}>В CRM</button>
+    {% endif %}
+  </div>
+  {% if export_error %}<p class="error">{{ export_error }}</p>{% endif %}
+  <h3>Журнал отправок в CRM</h3>
+  {% if t.exports %}
+  <table class="mini">
+    <thead><tr><th>Когда</th><th>Результат</th><th>Ответ вебхука</th></tr></thead>
+    <tbody>
+    {% for e in t.exports %}
+      <tr>
+        <td class="nowrap">{{ e.created_at|dt }}</td>
+        <td>{% if e.ok %}<span class="ok">отправлено</span>{% else %}<span class="bad">ошибка{{ ': ' ~ e.error if e.error }}</span>{% endif %}</td>
+        <td>{% if e.response %}
+          {% if e.response.crm %}{{ e.response.crm }}{% endif %}{% if e.response.external_id %} · № {{ e.response.external_id }}{% endif %}
+          {% if e.response.url %} · <a href="{{ e.response.url }}" target="_blank" rel="noopener">открыть</a>{% endif %}
+          {% if not (e.response.crm or e.response.external_id or e.response.url) %}<span class="muted">{{ e.response|tojson }}</span>{% endif %}
+        {% else %}-{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">Отправок ещё не было.</p>{% endif %}
+</div>

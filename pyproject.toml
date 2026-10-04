@@ -1,6 +1,6 @@
 [project]
 name = "zakupki-monitor"
-version = "0.1.0"
+version = "0.2.0"
 description = "Монитор госзакупок: сбор выдачи zakupki.gov.ru, разбор, рейтинг по правилам"
 readme = "README.md"
 license = { text = "MIT" }
@@ -14,6 +14,12 @@ dependencies = [
     "pydantic-settings>=2.3",
     "typer>=0.12",
     "pyyaml>=6.0",
+    "fastapi>=0.142.2",
+    "jinja2>=3.1",
+    "apscheduler>=3.10,<4",
+    "openpyxl>=3.1.5",
+    "uvicorn>=0.54.0",
+    "python-multipart>=0.0.32",
 ]
 
 [project.scripts]
@@ -36,6 +42,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true
@@ -43,6 +52,7 @@ plugins = ["pydantic.mypy"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+filterwarnings = ["ignore:Using .httpx. with .starlette.testclient:DeprecationWarning"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -50,3 +60,7 @@ disallow_untyped_defs = false
 disallow_untyped_calls = false
 disallow_incomplete_defs = false
 warn_unused_ignores = false
+
+[[tool.mypy.overrides]]
+module = ["apscheduler.*", "openpyxl.*"]
+ignore_missing_imports = true

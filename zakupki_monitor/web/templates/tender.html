@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ t.reg_number }}{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/">← К реестру</a></p>
+<h1 class="card-title">{{ t.object }}</h1>
+<p class="muted">{{ t.reg_number }} · {{ t.law }}-ФЗ · {{ t.method or '' }}{% if t.stage %} · {{ t.stage }}{% endif %}</p>
+
+<div class="grid">
+  <section class="panel">
+    <h2>Данные закупки</h2>
+    <dl class="facts">
+      <dt>Заказчик</dt><dd>{{ t.customer_name or '-' }}{% if t.customer_inn %} <span class="muted">ИНН {{ t.customer_inn }}</span>{% endif %}</dd>
+      <dt>Начальная цена</dt><dd>{{ t.initial_price|money }}</dd>
+      <dt>Окончание подачи</dt><dd class="{{ dl_class }}">{{ t.deadline_at|d }}{% if t.deadline_time %} {{ t.deadline_time|t }}{% endif %}{% if days is not none and days >= 0 %} <span class="muted">(осталось {{ days }} дн.)</span>{% endif %}</dd>
+      <dt>Размещено</dt><dd>{{ t.published_at|d }}</dd>
+      <dt>Обновлено</dt><dd>{{ t.updated_at|d }}</dd>
+      <dt>ОКПД2</dt><dd>{{ t.okpd2|join(', ') if t.okpd2 else '-' }}</dd>
+      <dt>Обеспечение заявки</dt><dd>{{ t.bid_security or '-' }}</dd>
+      <dt>Обеспечение контракта</dt><dd>{{ t.contract_security or '-' }}</dd>
+      <dt>Место поставки</dt><dd>{{ t.delivery_place or '-' }}</dd>
+      <dt>Ссылка</dt><dd>{% if t.url %}<a href="{{ t.url }}" target="_blank" rel="noopener">Открыть в ЕИС</a>{% else %}-{% endif %}</dd>
+      <dt>Впервые найдена</dt><dd>{{ t.first_seen_at|dt }}</dd>
+    </dl>
+    <h3>Заметка</h3>
+    <form hx-post="/tenders/{{ t.id }}/note" hx-trigger="change" hx-target="#note-state" hx-swap="innerHTML">
+      <textarea name="note" rows="3" placeholder="Попадёт в CRM вместе с тендером">{{ t.note or '' }}</textarea>
+      <span id="note-state"></span>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Рейтинг</h2>
+    {% if all_scores|length > 1 %}
+    <p class="tabs">Профиль:
+      {% for sc, pr in all_scores %}<a class="{{ 'on' if profile and pr.id == profile.id }}" href="/tenders/{{ t.id }}?profile={{ pr.id }}">{{ pr.name }}</a>{% endfor %}
+    </p>
+    {% elif profile %}<p class="muted">Профиль: {{ profile.name }}</p>{% endif %}
+    {% if score and score.filtered %}
+      <p class="rating-big r-none">отсев</p>
+      <ul>{% for r in score.filter_reasons %}<li>{{ r }}</li>{% endfor %}</ul>
+    {% elif score %}
+      <div class="score-row">
+        <div class="rating-big {{ score.rating|rclass }}">{{ '%.0f'|format(score.rating) }}</div>
+        <div class="muted">
+          по правилам: <b>{{ '%.0f'|format(score.rules_score) }}</b><br>
+          {% if score.ai_score is not none %}ИИ: <b>{{ '%.0f'|format(score.ai_score) }}</b> (вес {{ '%.0f'|format(profile.ai_weight * 100) }}%){% else %}ИИ не использовался{% endif %}
+        </div>
+      </div>
+      <h3>Какие правила сработали</h3>
+      {% if breakdown.rules %}
+      <table class="mini">
+        <thead><tr><th></th><th>Правило</th><th class="num">Вес</th><th class="num">Баллы</th></tr></thead>
+        <tbody>
+        {% for r in breakdown.rules %}
+          <tr class="{{ '' if r.matched else 'off' }}">
+            <td>{{ '✓' if r.matched else '·' }}</td>
+            <td>{{ rule_types.get(r.type, r.type) }}: <b>{{ r.value }}</b></td>
+            <td class="num">{{ r.weight }}</td><td class="num">{{ r.points }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}<p class="muted">У профиля нет правил.</p>{% endif %}
+      {% set ai = breakdown.ai %}
+      <h3>Оценка ИИ</h3>
+      {% if ai and ai.score is not none %}
+        <p><b>{{ '%.0f'|format(ai.score) }}</b> из 100 · {{ ai.verdict }}</p>
+        {% if ai.reasons %}<ul>{% for x in ai.reasons %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+        {% for q in ai.quotes %}<blockquote class="{{ '' if ai.quotes_ok else 'bad-quote' }}">{{ q }}</blockquote>{% endfor %}
+        {% if not ai.quotes_ok %}<p class="error">{{ ai.error }}</p>{% endif %}
+        <p class="muted">Провайдер: {{ ai.provider }}{% if ai.cached %} · из кеша{% endif %}</p>
+      {% elif ai and ai.error %}<p class="error">{{ ai.error }}</p>
+      {% elif profile and profile.ai_criterion %}<p class="muted">Критерий задан, оценка ещё не выполнялась.</p>
+      {% else %}<p class="muted">У профиля нет критерия для ИИ.</p>{% endif %}
+      {% if profile and profile.ai_criterion %}<p class="muted">Критерий: {{ profile.ai_criterion }}</p>{% endif %}
+      <form method="post" action="/tenders/{{ t.id }}/rescore">
+        <input type="hidden" name="profile_id" value="{{ profile.id }}">
+        <button class="btn ghost" type="submit">Пересчитать</button>
+      </form>
+    {% else %}<p class="muted">Закупка ещё не оценена ни одним профилем.</p>{% endif %}
+  </section>
+</div>
+
+<section class="panel">
+  <h2>Действия</h2>
+  {% include "_actions.html" %}
+</section>
+
+<section class="panel">
+  <h2>История изменений</h2>
+  {% if t.events %}
+  <table class="mini">
+    <thead><tr><th>Когда</th><th>Поле</th><th>Было</th><th>Стало</th></tr></thead>
+    <tbody>{% for e in t.events|reverse %}<tr><td class="nowrap">{{ e.created_at|dt }}</td><td>{{ e.field }}</td><td>{{ e.old_value or '-' }}</td><td>{{ e.new_value or '-' }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% else %}<p class="muted">Изменений с момента первой находки не было.</p>{% endif %}
+</section>
+{% endblock %}

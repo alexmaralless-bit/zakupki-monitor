@@ -29,6 +29,27 @@ class Settings(BaseSettings):
     default_max_pages: int = Field(5, ge=1)
     user_agent: str = USER_AGENT
 
+    # веб-интерфейс: только локальный адрес
+    web_port: int = Field(8765, ge=1, le=65535)
+
+    # ИИ: провайдер по умолчанию и ключи (ключи только из окружения / .env)
+    ai_provider: str = "yandex"
+    ai_timeout: float = 60.0
+    # прокси для ИИ и Telegram (например http://127.0.0.1:12334); из окружения прокси не читаются
+    proxy: str = ""
+    yandex_api_key: str = ""
+    yandex_folder_id: str = ""
+    yandex_model: str = "yandexgpt"
+    gigachat_auth_key: str = ""
+    gigachat_scope: str = "GIGACHAT_API_PERS"
+    gigachat_model: str = "GigaChat"
+    openai_api_key: str = ""
+    openai_model: str = "gpt-4o-mini"
+    openai_base_url: str = "https://api.openai.com/v1"
+    local_base_url: str = "http://127.0.0.1:11434/v1"
+    local_model: str = "qwen2.5:7b"
+    local_api_key: str = ""
+
     def resolved_db_path(self) -> Path:
         return self.db_path if self.db_path.is_absolute() else PROJECT_ROOT / self.db_path
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from urllib.parse import parse_qs, urljoin, urlsplit
 
@@ -47,6 +47,8 @@ class CardData:
     contract_security: str | None = None
     delivery_place: str | None = None
     customer_inn: str | None = None
+    deadline_time: time | None = None
+    lot_list_url: str | None = None  # 223-ФЗ: ОКПД2 лежат на вкладке «Список лотов»
 
 
 def clean(text: str | None) -> str:
@@ -187,11 +189,76 @@ def _delivery_place(tree: LexborHTMLParser) -> str | None:
     return None
 
 
+def parse_time(value: str | None) -> time | None:
+    m = re.search(r"\b([01]?\d|2[0-3]):([0-5]\d)\b", value or "")
+    return time(int(m.group(1)), int(m.group(2))) if m else None
+
+
+_OKPD_HEADERS = ("Код позиции", "ОКПД2", "Код ОКПД")
+_OKPD_START = re.compile(r"\d{2}\.\d{2}(?:\.\d{1,3}){0,2}")
+
+
+def _children(node: LexborNode | None, tag: str) -> list[LexborNode]:
+    return [c for c in node.iter(include_text=False) if c.tag == tag] if node else []
+
+
+def _table_rows(table: LexborNode) -> tuple[list[str], list[list[LexborNode]]]:
+    """Заголовки (включая пустые ячейки) и строки тела только этой таблицы, без вложенных."""
+    head_rows = _children(_first_child(table, "thead"), "tr")
+    heads = [_text(c) for c in head_rows[0].iter(include_text=False)] if head_rows else []
+    body = _first_child(table, "tbody")
+    rows = [_children(r, "td") for r in _children(body, "tr")]
+    return heads, rows
+
+
+def _first_child(node: LexborNode, tag: str) -> LexborNode | None:
+    return next((c for c in node.iter(include_text=False) if c.tag == tag), None)
+
+
+def _okpd_from_tables(tree: LexborHTMLParser) -> list[str]:
+    """44-ФЗ: код позиции (ОКПД2 / ОКПД2 из КТРУ) в таблице «Информация об объекте закупки»."""
+    found: list[str] = []
+    for table in tree.css("table"):
+        heads, rows = _table_rows(table)
+        idx = next((i for i, h in enumerate(heads) if any(k in h for k in _OKPD_HEADERS)), None)
+        if idx is None:
+            continue
+        for cells in rows:
+            if len(cells) == len(heads):
+                m = _OKPD_START.match(_text(cells[idx]))
+                if m:
+                    found.append(m.group(0))
+    return found
+
+
+def _lot_list_url(tree: LexborHTMLParser) -> str | None:
+    for a in tree.css("a"):
+        href = a.attributes.get("href") or ""
+        if "lot-list.html" in href:
+            return _absolute(href.replace("&amp;", "&"))
+    return None
+
+
+def parse_lot_list(html: str) -> list[str]:
+    """223-ФЗ, «Список лотов»: коды из колонки «Классификация по ОКПД2»."""
+    tree = LexborHTMLParser(html)
+    codes: list[str] = []
+    for table in tree.css("table"):
+        heads, rows = _table_rows(table)
+        idx = next((i for i, h in enumerate(heads) if "ОКПД2" in h), None)
+        if idx is None or not heads or not heads[0].startswith("Номер, наименование лота"):
+            continue
+        for cells in rows:
+            if len(cells) == len(heads):
+                codes.extend(_OKPD2_RE.findall(_text(cells[idx]).split(" ")[0]))
+    return list(dict.fromkeys(codes))
+
+
 def parse_card(html: str) -> CardData:
     """Доп. поля из common-info.html. Чего нет на странице — None/пусто (не выдумываем)."""
     tree = LexborHTMLParser(html)
     pairs = _pairs(tree)
-    data = CardData(delivery_place=_delivery_place(tree))
+    data = CardData(delivery_place=_delivery_place(tree), lot_list_url=_lot_list_url(tree))
 
     def value_of(label_part: str) -> str | None:
         for label, value in pairs:
@@ -214,7 +281,11 @@ def parse_card(html: str) -> CardData:
     for label, value in pairs:
         if "ОКПД2" in label:
             data.okpd2.extend(_OKPD2_RE.findall(value))
-    data.okpd2 = list(dict.fromkeys(data.okpd2))
+    data.okpd2 = list(dict.fromkeys([*data.okpd2, *_okpd_from_tables(tree)]))
+    for label, value in pairs:
+        if "окончания срока подачи заявок" in label or "окончания подачи заявок" in label:
+            data.deadline_time = parse_time(value)
+            break
     # ИНН заказчика есть в блоке «Сведения о заказчике» карточки 223-ФЗ; в 44-ФЗ там
     # лишь ИНН платёжных реквизитов, его не берём.
     if "Сведения о заказчике" in tree.text():
@@ -222,4 +293,9 @@ def parse_card(html: str) -> CardData:
             if label == "ИНН" and re.fullmatch(r"\d{10}|\d{12}", value):
                 data.customer_inn = value
                 break
+    if data.customer_inn is None:
+        # 44-ФЗ: ИНН заказчика зашит в ИКЗ (символы 4-13), сверено по карточке.
+        ikz = value_of("Идентификационный код закупки")
+        if ikz and re.fullmatch(r"\d{36}", ikz):
+            data.customer_inn = ikz[3:13]
     return data

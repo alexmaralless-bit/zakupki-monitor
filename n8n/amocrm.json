@@ -1,0 +1,200 @@
+{
+  "name": "Монитор госзакупок: amoCRM (сделка, компания, задача)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zakupki-amocrm",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n-webhook",
+      "name": "Вебхук от монитора",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "zakupki-amocrm",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Zakupki webhook secret"
+        }
+      },
+      "notes": "Authentication: Header Auth. Секрет не нужен: выберите None и очистите поле в настройках монитора."
+    },
+    {
+      "parameters": {
+        "jsCode": "const AMO_SUBDOMAIN = 'ВАШ-ПОДДОМЕН'; // https://ВАШ-ПОДДОМЕН.amocrm.ru\n// Разбор тендера схемы tender.v1, присланного монитором госзакупок.\nconst b = $input.first().json.body ?? $input.first().json;\nconst money = (n) => (n == null ? 'не указана' : Number(n).toLocaleString('ru-RU') + ' ' + (b.currency === 'RUB' || !b.currency ? '₽' : b.currency));\nconst dl = b.deadline_at || null;\nlet deadlineTs = Math.floor(Date.now() / 1000) + 3 * 86400;\nif (dl) {\n  const iso = dl.length > 10 ? dl + ':00+03:00' : dl + 'T23:59:00+03:00';\n  const t = Date.parse(iso);\n  if (!isNaN(t)) deadlineTs = Math.floor(t / 1000);\n}\nconst ai = b.ai || {};\nconst lines = [\n  `Закупка ${b.reg_number} (${b.law}-ФЗ), профиль «${b.profile}»`,\n  `Объект: ${b.object}`,\n  `Заказчик: ${(b.customer && b.customer.name) || '—'}${b.customer && b.customer.inn ? ', ИНН ' + b.customer.inn : ''}`,\n  `Начальная цена: ${money(b.price)}`,\n  `Окончание подачи заявок: ${dl || '—'}`,\n  `Рейтинг: ${b.rating ?? '—'}`,\n];\nif (ai.verdict) lines.push(`ИИ (${ai.score ?? '—'}): ${ai.verdict}`);\nif (b.user_note) lines.push(`Заметка: ${b.user_note}`);\nif (b.url) lines.push(`ЕИС: ${b.url}`);\nreturn [{ json: {\n  amo_subdomain: AMO_SUBDOMAIN,\n  reg_number: b.reg_number,\n  title: `Тендер ${b.reg_number}: ${b.object}`.slice(0, 250),\n  object: b.object,\n  customer_name: (b.customer && b.customer.name) || '',\n  customer_inn: (b.customer && b.customer.inn) || '',\n  price: b.price,\n  deadline_at: dl,\n  deadline_ts: deadlineTs,\n  eis_url: b.url || '',\n  rating: b.rating,\n  note: lines.join('\\n'),\n  raw: b,\n} }];"
+      },
+      "id": "n-map",
+      "name": "Маппинг",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "Впишите поддомен amoCRM в первой строке."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.amo_subdomain }}.amocrm.ru/api/v4/leads/complex",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([{ name: $json.title, price: Math.round($json.price || 0), _embedded: { companies: [{ name: $json.customer_name || 'Заказчик не указан' }] } }]) }}",
+        "options": {}
+      },
+      "id": "n-lead",
+      "name": "Создать сделку и компанию",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "",
+          "name": "amoCRM OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Маппинг').item.json.amo_subdomain }}.amocrm.ru/api/v4/tasks",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([{ text: 'Подать заявку по закупке ' + $('Маппинг').item.json.reg_number + ' до ' + ($('Маппинг').item.json.deadline_at || 'срока в ЕИС'), complete_till: $('Маппинг').item.json.deadline_ts, entity_id: $json.id, entity_type: 'leads' }]) }}",
+        "options": {}
+      },
+      "id": "n-task",
+      "name": "Задача на дату окончания подачи",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "",
+          "name": "amoCRM OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Маппинг').item.json.amo_subdomain }}.amocrm.ru/api/v4/leads/notes",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "oAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify([{ entity_id: $('Создать сделку и компанию').item.json.id, note_type: 'common', params: { text: $('Маппинг').item.json.note } }]) }}",
+        "options": {}
+      },
+      "id": "n-note",
+      "name": "Примечание со сводкой",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "credentials": {
+        "oAuth2Api": {
+          "id": "",
+          "name": "amoCRM OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ crm: 'amocrm', external_id: String($('Создать сделку и компанию').item.json.id), url: 'https://' + $('Маппинг').item.json.amo_subdomain + '.amocrm.ru/leads/detail/' + $('Создать сделку и компанию').item.json.id }) }}",
+        "options": {}
+      },
+      "id": "n-respond",
+      "name": "Ответ монитору",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Вебхук от монитора": {
+      "main": [
+        [
+          {
+            "node": "Маппинг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Маппинг": {
+      "main": [
+        [
+          {
+            "node": "Создать сделку и компанию",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Создать сделку и компанию": {
+      "main": [
+        [
+          {
+            "node": "Задача на дату окончания подачи",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Задача на дату окончания подачи": {
+      "main": [
+        [
+          {
+            "node": "Примечание со сводкой",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Примечание со сводкой": {
+      "main": [
+        [
+          {
+            "node": "Ответ монитору",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

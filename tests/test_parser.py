@@ -1,7 +1,13 @@
-from datetime import date
+from datetime import date, time
 from decimal import Decimal
 
-from zakupki_monitor.parser import parse_card, parse_date, parse_money, parse_search_page
+from zakupki_monitor.parser import (
+    parse_card,
+    parse_date,
+    parse_lot_list,
+    parse_money,
+    parse_search_page,
+)
 
 from .conftest import fixture_text
 
@@ -60,15 +66,28 @@ def test_card_44() -> None:
     assert card.delivery_place is not None
     assert card.delivery_place.startswith("Российская Федерация, г. Москва")
     assert card.delivery_place.count("Беговая") == 1  # повторы схлопнуты
-    assert card.customer_inn is None  # на карточке 44-ФЗ только ИНН платёжных реквизитов
-    assert card.okpd2 == []  # на этой карточке кодов нет, не выдумываем
+    # ИНН заказчика берётся из ИКЗ (в блоке реквизитов лишь ИНН казначейства)
+    assert card.customer_inn == "7714923649"
+    assert card.okpd2 == ["81.21.10.000"]  # код позиции КТРУ из таблицы объекта закупки
+    assert card.deadline_time == time(10, 0)
+    assert card.lot_list_url is None
 
 
 def test_card_223() -> None:
     card = parse_card(fixture_text("card_223.html"))
     assert card.customer_inn == "5032292612"
+    assert card.okpd2 == []  # у 223-ФЗ коды на вкладке «Список лотов»
+    assert card.deadline_time == time(12, 0)
+    assert (
+        card.lot_list_url and "lot-list.html?purchaseNoticeNumber=32616430006" in card.lot_list_url
+    )
     assert card.bid_security is None
     assert card.contract_security is None
+
+
+def test_lot_list_okpd2_223() -> None:
+    assert parse_lot_list(fixture_text("lots_223.html")) == ["71.12.19"]
+    assert parse_lot_list("<html></html>") == []
 
 
 def test_card_okpd2_extraction() -> None:

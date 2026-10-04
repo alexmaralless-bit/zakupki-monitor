@@ -1,0 +1,36 @@
+{% macro th(key, title, cls='') %}
+  {% set d = 'asc' if (f.sort == key and f.dir == 'desc') else 'desc' %}
+  <th class="{{ cls }} {{ 'sorted' if f.sort == key }}">
+    <a href="/?{{ f.query_string(sort=key, dir=d, page=1) }}"
+       hx-get="/?{{ f.query_string(sort=key, dir=d, page=1) }}" hx-target="#registry" hx-push-url="true">{{ title }}{% if f.sort == key %} {{ '↑' if f.dir == 'asc' else '↓' }}{% endif %}</a>
+  </th>
+{% endmacro %}
+<div class="bar">
+  <span class="muted">Найдено: <b>{{ total }}</b></span>
+  <a class="btn ghost" href="/export.xlsx?{{ f.query_string(page='') }}">Выгрузить в Excel</a>
+</div>
+{% if rows %}
+<table class="reg">
+  <thead><tr>
+    {{ th('rating', 'Рейтинг', 'num') }}
+    {{ th('object', 'Объект закупки') }}
+    <th>Заказчик</th>
+    {{ th('price', 'Цена', 'num') }}
+    {{ th('deadline', 'Подача до') }}
+    <th>Закон</th><th>Профиль</th><th>Статус</th>
+  </tr></thead>
+  <tbody>
+  {% for r in rows %}{% with t=r.t, s=r.s, p=r.p, days=r.days, dl_class=r.dl_class %}{% include "_row.html" %}{% endwith %}{% endfor %}
+  </tbody>
+</table>
+{% if pages > 1 %}
+<div class="pager">
+  {% for n in range(1, pages + 1) %}
+    <a class="{{ 'on' if n == f.page }}" href="/?{{ f.query_string(page=n) }}"
+       hx-get="/?{{ f.query_string(page=n) }}" hx-target="#registry" hx-push-url="true">{{ n }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+{% else %}
+<p class="empty">Закупок по этим условиям нет. Создайте профиль и запустите сбор на странице «Профили».</p>
+{% endif %}

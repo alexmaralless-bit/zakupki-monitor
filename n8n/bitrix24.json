@@ -1,0 +1,200 @@
+{
+  "name": "Монитор госзакупок: Bitrix24 (сделка, компания, задача)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "zakupki-bitrix24",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "n-webhook",
+      "name": "Вебхук от монитора",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        300
+      ],
+      "webhookId": "zakupki-bitrix24",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Zakupki webhook secret"
+        }
+      },
+      "notes": "Authentication: Header Auth. Секрет не нужен: выберите None и очистите поле в настройках монитора."
+    },
+    {
+      "parameters": {
+        "jsCode": "const BITRIX_DOMAIN = 'ВАШ-ПОРТАЛ.bitrix24.ru';\n// Разбор тендера схемы tender.v1, присланного монитором госзакупок.\nconst b = $input.first().json.body ?? $input.first().json;\nconst money = (n) => (n == null ? 'не указана' : Number(n).toLocaleString('ru-RU') + ' ' + (b.currency === 'RUB' || !b.currency ? '₽' : b.currency));\nconst dl = b.deadline_at || null;\nlet deadlineTs = Math.floor(Date.now() / 1000) + 3 * 86400;\nif (dl) {\n  const iso = dl.length > 10 ? dl + ':00+03:00' : dl + 'T23:59:00+03:00';\n  const t = Date.parse(iso);\n  if (!isNaN(t)) deadlineTs = Math.floor(t / 1000);\n}\nconst ai = b.ai || {};\nconst lines = [\n  `Закупка ${b.reg_number} (${b.law}-ФЗ), профиль «${b.profile}»`,\n  `Объект: ${b.object}`,\n  `Заказчик: ${(b.customer && b.customer.name) || '—'}${b.customer && b.customer.inn ? ', ИНН ' + b.customer.inn : ''}`,\n  `Начальная цена: ${money(b.price)}`,\n  `Окончание подачи заявок: ${dl || '—'}`,\n  `Рейтинг: ${b.rating ?? '—'}`,\n];\nif (ai.verdict) lines.push(`ИИ (${ai.score ?? '—'}): ${ai.verdict}`);\nif (b.user_note) lines.push(`Заметка: ${b.user_note}`);\nif (b.url) lines.push(`ЕИС: ${b.url}`);\nreturn [{ json: {\n  bitrix_domain: BITRIX_DOMAIN,\n  reg_number: b.reg_number,\n  title: `Тендер ${b.reg_number}: ${b.object}`.slice(0, 250),\n  object: b.object,\n  customer_name: (b.customer && b.customer.name) || '',\n  customer_inn: (b.customer && b.customer.inn) || '',\n  price: b.price,\n  deadline_at: dl,\n  deadline_ts: deadlineTs,\n  eis_url: b.url || '',\n  rating: b.rating,\n  note: lines.join('\\n'),\n  raw: b,\n} }];"
+      },
+      "id": "n-map",
+      "name": "Маппинг",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "Впишите адрес портала Bitrix24 в первой строке."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $json.bitrix_domain }}/rest/crm.company.add.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "bitrix24OAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: { TITLE: $json.customer_name || 'Заказчик не указан', COMMENTS: $json.customer_inn ? 'ИНН ' + $json.customer_inn : '' } }) }}",
+        "options": {}
+      },
+      "id": "n-company",
+      "name": "crm.company.add",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        300
+      ],
+      "credentials": {
+        "bitrix24OAuth2Api": {
+          "id": "",
+          "name": "Bitrix24 OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Маппинг').item.json.bitrix_domain }}/rest/crm.deal.add.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "bitrix24OAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: { TITLE: $('Маппинг').item.json.title, OPPORTUNITY: $('Маппинг').item.json.price || 0, CURRENCY_ID: 'RUB', COMPANY_ID: $json.result, COMMENTS: $('Маппинг').item.json.note, SOURCE_DESCRIPTION: $('Маппинг').item.json.eis_url } }) }}",
+        "options": {}
+      },
+      "id": "n-deal",
+      "name": "crm.deal.add",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        300
+      ],
+      "credentials": {
+        "bitrix24OAuth2Api": {
+          "id": "",
+          "name": "Bitrix24 OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://{{ $('Маппинг').item.json.bitrix_domain }}/rest/tasks.task.add.json",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "bitrix24OAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ fields: { TITLE: 'Подать заявку по закупке ' + $('Маппинг').item.json.reg_number, DESCRIPTION: $('Маппинг').item.json.note, DEADLINE: new Date($('Маппинг').item.json.deadline_ts * 1000).toISOString(), UF_CRM_TASK: ['D_' + $json.result] } }) }}",
+        "options": {}
+      },
+      "id": "n-task",
+      "name": "tasks.task.add",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "credentials": {
+        "bitrix24OAuth2Api": {
+          "id": "",
+          "name": "Bitrix24 OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ crm: 'bitrix24', external_id: String($('crm.deal.add').item.json.result), url: 'https://' + $('Маппинг').item.json.bitrix_domain + '/crm/deal/details/' + $('crm.deal.add').item.json.result + '/' }) }}",
+        "options": {}
+      },
+      "id": "n-respond",
+      "name": "Ответ монитору",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Вебхук от монитора": {
+      "main": [
+        [
+          {
+            "node": "Маппинг",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Маппинг": {
+      "main": [
+        [
+          {
+            "node": "crm.company.add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crm.company.add": {
+      "main": [
+        [
+          {
+            "node": "crm.deal.add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crm.deal.add": {
+      "main": [
+        [
+          {
+            "node": "tasks.task.add",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "tasks.task.add": {
+      "main": [
+        [
+          {
+            "node": "Ответ монитору",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "pinData": {},
+  "tags": []
+}

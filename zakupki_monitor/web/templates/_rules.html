@@ -1,0 +1,22 @@
+<div id="rules">
+  {% if rules %}
+  <table class="mini">
+    <thead><tr><th>Тип</th><th>Значение</th><th class="num">Вес</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rules %}
+      <tr>
+        <td>{{ rule_types.get(r.type, r.type) }}</td><td><b>{{ r.value }}</b></td><td class="num">{{ r.weight }}</td>
+        <td class="right"><button class="link" type="button" hx-post="/profiles/{{ profile.id }}/rules/{{ r.id }}/delete" hx-target="#rules" hx-swap="outerHTML">Удалить</button></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}<p class="muted">Правил нет: рейтинг по правилам будет нулевым.</p>{% endif %}
+  {% if rule_error %}<p class="error">{{ rule_error }}</p>{% endif %}
+  <form class="rule-add" hx-post="/profiles/{{ profile.id }}/rules" hx-target="#rules" hx-swap="outerHTML">
+    <select name="type">{% for k, v in rule_types.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+    <input name="value" placeholder="значение" required>
+    <input name="weight" value="1" class="narrow" title="Вес; отрицательный вес = штраф">
+    <button class="btn" type="submit">Добавить правило</button>
+  </form>
+</div>

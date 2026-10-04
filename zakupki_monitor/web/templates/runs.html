@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Журнал прогонов{% endblock %}
+{% block content %}
+<h1>Журнал прогонов</h1>
+{% if runs %}
+<table class="reg">
+  <thead><tr><th>Начало</th><th>Профиль</th><th class="num">Страниц</th><th class="num">Найдено</th><th class="num">Новых</th><th class="num">Обновлено</th><th class="num">Отсеяно</th><th class="num">Карточек</th><th class="num">Ошибок</th><th>Примечание</th></tr></thead>
+  <tbody>
+  {% for r, name in runs %}
+    <tr>
+      <td class="nowrap">{{ r.started_at|dt }}</td><td>{{ name }}</td>
+      <td class="num">{{ r.pages }}</td><td class="num">{{ r.found }}</td><td class="num">{{ r.new }}</td>
+      <td class="num">{{ r.updated }}</td><td class="num">{{ r.filtered }}</td><td class="num">{{ r.cards }}</td>
+      <td class="num {{ 'bad' if r.errors }}">{{ r.errors }}</td><td class="sub">{{ r.note or '' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="empty">Прогонов ещё не было.</p>{% endif %}
+<section class="panel">
+  <h2>Расписание</h2>
+  {% if jobs %}<ul>{% for j in jobs %}<li>{{ j.id }}{% if j.next_run_time %}: следующий запуск {{ j.next_run_time.strftime('%d.%m.%Y %H:%M') }}{% endif %}</li>{% endfor %}</ul>
+  {% else %}<p class="muted">Заданий нет: включите автосбор в профиле (интервал в минутах).</p>{% endif %}
+</section>
+{% endblock %}

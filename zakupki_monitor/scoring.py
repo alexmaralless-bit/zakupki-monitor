@@ -43,6 +43,8 @@ class TenderView:
     initial_price: Decimal | None = None
     deadline_at: date | None = None
     okpd2: list[str] = field(default_factory=list)
+    reg_number: str = ""
+    text: str = ""  # полный текст закупки для ИИ (объект, заказчик, карточка)
 
 
 @dataclass
@@ -149,14 +151,40 @@ def score_rules(view: TenderView, rules: list[RuleSpec], today: date) -> RulesRe
     return RulesResult(score=round(score, 2), breakdown=breakdown)
 
 
+@dataclass
+class AIOutcome:
+    """Результат ИИ-оценки; score = None, если провайдер не ответил (считаются только правила)."""
+
+    score: float | None
+    verdict: str = ""
+    reasons: list[str] = field(default_factory=list)
+    quotes: list[str] = field(default_factory=list)
+    quotes_ok: bool = False
+    provider: str = ""
+    cached: bool = False
+    error: str | None = None
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "score": self.score,
+            "verdict": self.verdict,
+            "reasons": self.reasons,
+            "quotes": self.quotes,
+            "quotes_ok": self.quotes_ok,
+            "provider": self.provider,
+            "cached": self.cached,
+            "error": self.error,
+        }
+
+
 class AIScorer(Protocol):
-    def score(self, view: TenderView, criterion: str) -> float | None: ...
+    def score(self, view: TenderView, criterion: str) -> AIOutcome | None: ...
 
 
 class NullAIScorer:
-    """Этап 1: ИИ-слой выключен. Настоящие провайдеры появятся на этапе 2."""
+    """ИИ выключен: рейтинг считается только по правилам."""
 
-    def score(self, view: TenderView, criterion: str) -> float | None:
+    def score(self, view: TenderView, criterion: str) -> AIOutcome | None:
         return None
 
 

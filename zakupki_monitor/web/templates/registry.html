@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Реестр закупок</h1>
+<form class="filters" id="filters" action="/" method="get"
+      hx-get="/" hx-target="#registry" hx-push-url="true"
+      hx-trigger="change, keyup changed delay:400ms from:#q, submit">
+  <label>Поиск
+    <input type="search" id="q" name="q" value="{{ f.q }}" placeholder="объект, заказчик, номер">
+  </label>
+  <label>Профиль
+    <select name="profile">
+      <option value="">Все</option>
+      {% for p in profiles %}<option value="{{ p.id }}" {{ 'selected' if f.profile == p.id }}>{{ p.name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Статус
+    <select name="status">
+      <option value="">Любой</option>
+      {% for k, v in statuses.items() %}<option value="{{ k }}" {{ 'selected' if f.status == k }}>{{ v }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>Закон
+    <select name="law">
+      <option value="">Оба</option>
+      <option value="44" {{ 'selected' if f.law == 44 }}>44-ФЗ</option>
+      <option value="223" {{ 'selected' if f.law == 223 }}>223-ФЗ</option>
+    </select>
+  </label>
+  <label>Рейтинг от
+    <input type="number" name="min_rating" min="0" max="100" step="5" value="{{ f.min_rating if f.min_rating is not none else '' }}" class="narrow">
+  </label>
+  <label class="check"><input type="checkbox" name="urgent" value="1" {{ 'checked' if f.urgent }}> Срочные (до {{ urgent_days }} дней)</label>
+  <label class="check"><input type="checkbox" name="show_filtered" value="1" {{ 'checked' if f.show_filtered }}> Показать отсеянные</label>
+  <input type="hidden" name="sort" value="{{ f.sort }}">
+  <input type="hidden" name="dir" value="{{ f.dir }}">
+</form>
+<div id="registry">{% include "_registry.html" %}</div>
+{% endblock %}

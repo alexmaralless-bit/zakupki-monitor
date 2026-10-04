@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}{{ profile.name if profile else 'Новый профиль' }}{% endblock %}
+{% block content %}
+<p class="crumb"><a href="/profiles">← Все профили</a></p>
+<h1>{{ profile.name if profile else 'Новый профиль' }}</h1>
+{% if saved %}<p class="notice">Профиль сохранён.</p>{% endif %}
+{% if msg %}<p class="notice">{{ msg }}</p>{% endif %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<form method="post" action="{{ '/profiles/%d' % profile.id if profile else '/profiles/new' }}" class="stack">
+<div class="grid">
+  <section class="panel">
+    <h2>Поиск на zakupki.gov.ru</h2>
+    <label>Название <input name="name" required value="{{ profile.name if profile else '' }}"></label>
+    <label>Поисковая фраза <input name="search_string" value="{{ search.search_string }}"></label>
+    <div class="checks">
+      <label class="check"><input type="checkbox" name="morphology" {{ 'checked' if search.morphology }}> с учётом морфологии</label>
+      <label class="check"><input type="checkbox" name="fz44" {{ 'checked' if search.fz44 }}> 44-ФЗ</label>
+      <label class="check"><input type="checkbox" name="fz223" {{ 'checked' if search.fz223 }}> 223-ФЗ</label>
+      <label class="check"><input type="checkbox" name="af" {{ 'checked' if search.af }}> только приём заявок</label>
+    </div>
+    <label>Коды ОКПД2 в поиске (через запятую) <input name="okpd2_codes" value="{{ search.okpd2_codes|join(', ') }}"></label>
+    <div class="two">
+      <label>Цена в поиске от <input name="price_from" value="{{ search.price_from if search.price_from is not none else '' }}"></label>
+      <label>до <input name="price_to" value="{{ search.price_to if search.price_to is not none else '' }}"></label>
+    </div>
+    <div class="two">
+      <label>Страниц за прогон <input type="number" min="1" name="max_pages" value="{{ profile.max_pages if profile else 5 }}"></label>
+      <label>Автосбор, минут (0 = вручную) <input type="number" min="0" name="interval_minutes" value="{{ profile.interval_minutes or 0 if profile else 0 }}"></label>
+    </div>
+  </section>
+  <section class="panel">
+    <h2>Отсев</h2>
+    <p class="muted">Закупки, не прошедшие отсев, получают причину и не попадают в рейтинг.</p>
+    <div class="two">
+      <label>Цена от <input name="price_min" value="{{ flt.price_min if flt.price_min is not none else '' }}"></label>
+      <label>Цена до <input name="price_max" value="{{ flt.price_max if flt.price_max is not none else '' }}"></label>
+    </div>
+    <label>Минимум дней до окончания подачи <input type="number" min="0" name="min_days" value="{{ flt.min_days_to_deadline if flt.min_days_to_deadline is not none else '' }}"></label>
+    <label>Стоп-слова в объекте (через запятую) <input name="stop_words" value="{{ flt.stop_words|join(', ') }}"></label>
+    <div class="checks">
+      <label class="check"><input type="checkbox" name="law44" {{ 'checked' if 44 in flt.laws }}> 44-ФЗ</label>
+      <label class="check"><input type="checkbox" name="law223" {{ 'checked' if 223 in flt.laws }}> 223-ФЗ</label>
+      <label class="check"><input type="checkbox" name="msp_only" {{ 'checked' if flt.msp_only }}> только для МСП</label>
+    </div>
+    <h2>ИИ (по желанию)</h2>
+    <label>Критерий обычным текстом
+      <textarea name="ai_criterion" rows="4" placeholder="Например: подходят закупки на проектирование наружных газопроводов; не подходят поставки оборудования">{{ profile.ai_criterion or '' if profile else '' }}</textarea>
+    </label>
+    <label>Вес ИИ в итоговом рейтинге, % <input type="number" min="0" max="100" name="ai_weight" value="{{ '%.0f' % (profile.ai_weight * 100) if profile else 50 }}"></label>
+  </section>
+</div>
+<div class="bar">
+  <button class="btn primary" type="submit">Сохранить профиль</button>
+</div>
+</form>
+
+{% if profile %}
+<section class="panel">
+  <h2>Правила баллов</h2>
+  <p class="muted">Сумма весов сработавших правил нормируется к 0-100. Отрицательный вес вычитает баллы.</p>
+  {% include "_rules.html" %}
+  <div class="bar">
+    <form method="post" action="/profiles/{{ profile.id }}/rescore" class="inline"><button class="btn ghost" type="submit">Пересчитать рейтинг собранных закупок</button></form>
+    <form method="post" action="/profiles/{{ profile.id }}/delete" class="inline" onsubmit="return confirm('Удалить профиль и его оценки?')"><button class="btn danger" type="submit">Удалить профиль</button></form>
+  </div>
+</section>
+{% endif %}
+{% endblock %}

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from .config import Settings
 from .models import Profile, Run, Score, Tender, utcnow
-from .parser import SearchEntry, parse_card, parse_search_page
+from .parser import CardData, SearchEntry, parse_card, parse_lot_list, parse_search_page
 from .profiles import profile_filter, profile_rules, profile_search
 from .scoring import (
     AIScorer,
@@ -104,8 +104,30 @@ def card_url(url: str) -> str:
     )
 
 
+def tender_text(tender: Tender) -> str:
+    """Текст закупки для ИИ: только то, что реально известно, без домыслов."""
+    parts = [f"Объект закупки: {tender.object}"]
+    if tender.customer_name:
+        parts.append(f"Заказчик: {tender.customer_name}")
+    if tender.method:
+        parts.append(f"Способ определения поставщика: {tender.method}")
+    if tender.okpd2:
+        parts.append(f"ОКПД2: {', '.join(tender.okpd2)}")
+    if tender.initial_price is not None:
+        parts.append(f"Начальная цена: {tender.initial_price} {tender.currency or ''}".strip())
+    if tender.delivery_place:
+        parts.append(f"Место поставки: {tender.delivery_place}")
+    if tender.bid_security:
+        parts.append(f"Обеспечение заявки: {tender.bid_security}")
+    if tender.contract_security:
+        parts.append(f"Обеспечение исполнения контракта: {tender.contract_security}")
+    return "\n".join(parts)
+
+
 def tender_view(tender: Tender) -> TenderView:
     return TenderView(
+        reg_number=tender.reg_number,
+        text=tender_text(tender),
         object=tender.object,
         law=tender.law,
         method=tender.method,
@@ -130,7 +152,7 @@ def evaluate(
     today: date,
     ai: AIScorer | None = None,
 ) -> Score:
-    """Отсев + баллы по правилам + (заглушка) ИИ; сохраняет Score."""
+    """Отсев + баллы по правилам + ИИ (если задан критерий и оценщик); сохраняет Score."""
     ai = ai or NullAIScorer()
     view = tender_view(tender)
     flt = apply_filter(view, profile_filter(profile), today)
@@ -146,25 +168,35 @@ def evaluate(
         score.breakdown = None
         return score
     rules = score_rules(view, profile_rules(profile), today)
-    ai_score = ai.score(view, profile.ai_criterion) if profile.ai_criterion else None
+    outcome = ai.score(view, profile.ai_criterion) if profile.ai_criterion else None
+    ai_score = outcome.score if outcome else None
     score.filtered = False
     score.filter_reasons = []
     score.rules_score = rules.score
     score.ai_score = ai_score
     score.rating = final_rating(rules.score, ai_score, profile.ai_weight)
-    score.breakdown = {"rules": rules.breakdown, "ai": None}
+    score.breakdown = {"rules": rules.breakdown, "ai": outcome.as_dict() if outcome else None}
     return score
 
 
-def _apply_card(tender: Tender, html: str) -> None:
-    card = parse_card(html)
+def apply_card(tender: Tender, card: CardData) -> None:
     tender.okpd2 = card.okpd2 or None
     tender.bid_security = card.bid_security
     tender.contract_security = card.contract_security
     tender.delivery_place = card.delivery_place
     if card.customer_inn:
         tender.customer_inn = card.customer_inn
+    if card.deadline_time:
+        tender.deadline_time = card.deadline_time
     tender.card_fetched_at = utcnow()
+
+
+def _fetch_card(tender: Tender, fetcher: Fetcher) -> None:
+    """Карточка; у 223-ФЗ коды ОКПД2 лежат на вкладке «Список лотов» (+1 запрос)."""
+    card = parse_card(fetcher.get(card_url(tender.url or "")))
+    if not card.okpd2 and card.lot_list_url:
+        card.okpd2 = parse_lot_list(fetcher.get(card.lot_list_url))
+    apply_card(tender, card)
 
 
 def collect(
@@ -236,22 +268,32 @@ def _process_entry(
         return 0
     changed = 1  # новая, изменившаяся или ещё не оценённая по этому профилю
 
-    score = evaluate(session, tender, profile, today, ai)  # первичный отсев по данным выдачи
+    score = evaluate(session, tender, profile, today)  # первичный отсев по данным выдачи, без ИИ
+    if score.filtered:
+        stats.filtered += 1
+        return changed
+    # карточка - только для прошедших отсев; перезапрос, если закупка изменилась
+    if tender.card_fetched_at is None or res.outcome == "updated":
+        try:
+            _fetch_card(tender, fetcher)
+            stats.cards += 1
+        except FetchError as exc:
+            stats.errors += 1
+            stats.notes.append(f"карточка {tender.reg_number}: {exc}")
+    score = evaluate(session, tender, profile, today, ai)  # итог: с карточкой и ИИ
     if score.filtered:
         stats.filtered += 1
     else:
-        # карточка - только для прошедших отсев; перезапрос, если закупка изменилась
-        if tender.card_fetched_at is None or res.outcome == "updated":
-            try:
-                _apply_card(tender, fetcher.get(card_url(tender.url or "")))
-                stats.cards += 1
-            except FetchError as exc:
-                stats.errors += 1
-                stats.notes.append(f"карточка {tender.reg_number}: {exc}")
-            else:
-                score = evaluate(session, tender, profile, today, ai)
-                if score.filtered:
-                    stats.filtered += 1
-                    return changed
         stats.scored += 1
     return changed
+
+
+def rescore_profile(
+    session: Session, profile: Profile, today: date, ai: AIScorer | None = None
+) -> int:
+    """Пересчёт рейтинга уже собранных закупок профиля (после правки правил)."""
+    scores = list(session.scalars(select(Score).where(Score.profile_id == profile.id)))
+    for score in scores:
+        evaluate(session, score.tender, profile, today, ai)
+    session.flush()
+    return len(scores)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from decimal import Decimal
 from typing import Any
 
@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    Time,
     TypeDecorator,
     UniqueConstraint,
 )
@@ -59,6 +60,7 @@ class Profile(Base):
     max_pages: Mapped[int] = mapped_column(Integer, default=5)
     ai_criterion: Mapped[str | None] = mapped_column(Text, default=None)
     ai_weight: Mapped[float] = mapped_column(Float, default=0.5)
+    interval_minutes: Mapped[int | None] = mapped_column(Integer, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     rules: Mapped[list[Rule]] = relationship(
@@ -111,6 +113,7 @@ class Tender(Base):
     published_at: Mapped[date | None] = mapped_column(Date)
     updated_at: Mapped[date | None] = mapped_column(Date)
     deadline_at: Mapped[date | None] = mapped_column(Date)
+    deadline_time: Mapped[time | None] = mapped_column(Time)
     url: Mapped[str | None] = mapped_column(Text)
     # из карточки
     okpd2: Mapped[list[str] | None]
@@ -120,6 +123,7 @@ class Tender(Base):
     card_fetched_at: Mapped[datetime | None] = mapped_column(DateTime)
     # служебное
     status: Mapped[str] = mapped_column(String(20), default="new")
+    note: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -128,6 +132,9 @@ class Tender(Base):
     )
     scores: Mapped[list[Score]] = relationship(
         back_populates="tender", cascade="all, delete-orphan"
+    )
+    exports: Mapped[list[CrmExport]] = relationship(
+        back_populates="tender", cascade="all, delete-orphan", order_by="CrmExport.id.desc()"
     )
 
 
@@ -160,3 +167,41 @@ class Score(Base):
     scored_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
     tender: Mapped[Tender] = relationship(back_populates="scores")
+
+
+class AICache(Base):
+    """Ответы ИИ: ключ (номер закупки, хеш критерия, хеш текста)."""
+
+    __tablename__ = "ai_cache"
+    __table_args__ = (UniqueConstraint("reg_number", "criterion_hash", "text_hash"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    reg_number: Mapped[str] = mapped_column(String(32), index=True)
+    criterion_hash: Mapped[str] = mapped_column(String(64))
+    text_hash: Mapped[str] = mapped_column(String(64))
+    provider: Mapped[str] = mapped_column(String(50))
+    response: Mapped[dict[str, Any]]  # проверенный JSON {score, verdict, reasons, quotes}
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class CrmExport(Base):
+    __tablename__ = "crm_exports"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    tender_id: Mapped[int] = mapped_column(ForeignKey("tenders.id", ondelete="CASCADE"))
+    url: Mapped[str] = mapped_column(Text)
+    request: Mapped[dict[str, Any]]
+    response: Mapped[dict[str, Any] | None]
+    http_status: Mapped[int | None] = mapped_column(Integer)
+    ok: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    tender: Mapped[Tender] = relationship(back_populates="exports")
+
+
+class AppSetting(Base):
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, default="")

@@ -43,7 +43,8 @@ def test_incremental_stop_and_cards_only_for_passed(session, settings) -> None: 
     assert total == 100
     passed = len(session.scalars(select(Score).where(Score.filtered.is_(False))).all())
     assert stats.filtered == 100 - passed
-    assert stats.cards == passed == len(site.card_requests)
+    lot_lists = [u for u in site.card_requests if "lot-list" in u]
+    assert stats.cards == passed == len(site.card_requests) - len(lot_lists)
     assert passed < 20  # карточки запрошены не для всех
     # паузы между запросами 2-4 с
     assert len(sleeps) == len(site.search_requests) + len(site.card_requests) - 1

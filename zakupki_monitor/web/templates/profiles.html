@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Профили{% endblock %}
+{% block content %}
+<h1>Профили поиска</h1>
+{% if msg %}<p class="notice">{{ msg }}</p>{% endif %}
+{% if error %}<p class="error">{{ error }}</p>{% endif %}
+<div class="bar">
+  <span class="muted">Профиль = сохранённый поиск на zakupki.gov.ru + правила «подходит».</span>
+  <a class="btn primary" href="/profiles/new">Создать профиль</a>
+</div>
+{% if profiles %}
+<table class="reg">
+  <thead><tr><th>Название</th><th>Поисковая фраза</th><th>Законы</th><th>Подходящих</th><th>Автосбор</th><th></th></tr></thead>
+  <tbody>
+  {% for p in profiles %}
+    <tr>
+      <td><a href="/profiles/{{ p.id }}"><b>{{ p.name }}</b></a></td>
+      <td>{{ p.search.get('search_string') or '-' }}</td>
+      <td>{% if p.search.get('fz44') %}44{% endif %}{% if p.search.get('fz44') and p.search.get('fz223') %} + {% endif %}{% if p.search.get('fz223') %}223{% endif %}</td>
+      <td class="num">{{ counts.get(p.id, 0) }}</td>
+      <td>{{ 'каждые %d мин.' % p.interval_minutes if p.interval_minutes else 'вручную' }}</td>
+      <td class="right">
+        <form method="post" action="/profiles/{{ p.id }}/run" class="inline"><button class="btn ghost" type="submit">Собрать сейчас</button></form>
+      </td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% else %}<p class="empty">Профилей пока нет.</p>{% endif %}
+
+<section class="panel">
+  <h2>Импорт ссылки поиска</h2>
+  <p class="muted">Настройте расширенный поиск на zakupki.gov.ru, скопируйте адрес страницы результатов и вставьте сюда.</p>
+  <form method="post" action="/profiles/import" class="stack">
+    <label>Название профиля <input name="name" required placeholder="Например, Проектирование газопроводов"></label>
+    <label>Ссылка поиска <input name="url" required placeholder="https://zakupki.gov.ru/epz/order/extendedsearch/results.html?..."></label>
+    <button class="btn primary" type="submit">Импортировать</button>
+  </form>
+</section>
+{% endblock %}
