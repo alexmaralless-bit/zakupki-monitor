@@ -1,0 +1,27 @@
+# Пример профиля. Создать: uv run zakupki-monitor profile add --file profiles-example/gas-design.yaml
+name: Проектирование газопроводов
+search:
+  search_string: мособлгаз
+  morphology: true
+  fz44: true
+  fz223: true
+  af: true
+  okpd2_codes: ["71.12.19"]
+max_pages: 3
+filter:
+  price_min: 500000
+  price_max: 50000000
+  min_days_to_deadline: 3
+  stop_words: ["поставка", "аренда"]
+  msp_only: false
+  laws: [44, 223]
+rules:
+  - {type: keyword, value: газопровод, weight: 3}
+  - {type: keyword, value: проектн, weight: 2}
+  - {type: okpd2, value: "71.12", weight: 3}
+  - {type: customer, value: мособлгаз, weight: 1}
+  - {type: price_range, value: "1000000-10000000", weight: 1}
+  - {type: days_to_deadline, value: "7", weight: 1}
+ai:
+  criterion: null
+  weight: 0.5
