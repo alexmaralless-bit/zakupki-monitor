@@ -111,6 +111,10 @@ uv run ruff check . && uv run mypy zakupki_monitor tests scripts
 
 Тесты работают без сети на сохранённых страницах из `tests/fixtures/` (общедоступные данные ЕИС), ИИ, n8n и Telegram подменены заглушками.
 
+## Автор
+
+Telegram-канал [@sitimlab](https://t.me/sitimlab) · сайт [sitimlab.ru](https://sitimlab.ru/?utm_source=github&utm_medium=profile)
+
 ## Лицензия
 
 MIT. Библиотека htmx распространяется на условиях 0-clause BSD.
